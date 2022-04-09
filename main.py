@@ -16,15 +16,14 @@ from pytz import timezone
 import tensorflow as tf
 import tensorflow_hub as hub
 import tensorflow_datasets as tfds
-# import tensorflow_text
 import os
 import re
 import string
 
 AUTOTUNE = tf.data.AUTOTUNE
-EPOCHS = 100
+EPOCHS = 1000
 BATCH_SIZE = 32
-PATIENCE = 10
+PATIENCE = 14
 RANDOM_SEED = 69
 MAX_FEATURES = 25_000
 SEQ_LENGTH = 128
@@ -128,6 +127,34 @@ def build_custom_network() -> tf.keras.Sequential:
     lyrs = [
         hub.KerasLayer(emb_layer, input_shape=[], dtype=tf.string),
         tf.keras.layers.Dense(128, activation='relu'),
+        tf.keras.layers.Dropout(0.35),
+        tf.keras.layers.Dense(1)
+    ]
+    model = tf.keras.Sequential(name='Pretrained-NN', layers=lyrs)
+
+    # Compile it and return it:
+    model.compile(
+        loss=tf.keras.losses.BinaryCrossentropy(from_logits=True),
+        optimizer=tf.keras.optimizers.SGD(learning_rate=0.01, momentum=0.9, nesterov=True),
+        metrics=tf.keras.metrics.BinaryAccuracy()
+    )
+    return model
+
+
+def build_custom_network_alpha() -> tf.keras.Sequential:
+    """ Build a sequential model using a pretrained embedding layer from TFHub. """
+    # TFHub Sources:
+    emb_layer = "https://tfhub.dev/google/tf2-preview/nnlm-en-dim128-with-normalization/1"
+
+    # Assemble the model:
+    lyrs = [
+        hub.KerasLayer(emb_layer, input_shape=[], dtype=tf.string),
+        tf.keras.layers.Lambda(lambda x: tf.reshape(x, (-1, 128, 1))),
+        tf.keras.layers.Conv1D(16, 5, padding='same'),
+        tf.keras.layers.Conv1D(16, 5, padding='same'),
+        tf.keras.layers.Conv1D(16, 5, padding='same'),
+        tf.keras.layers.GlobalAveragePooling1D(data_format='channels_first'),
+        tf.keras.layers.Dense(128, activation='relu'),
         tf.keras.layers.Dropout(0.3),
         tf.keras.layers.Dense(1)
     ]
@@ -142,10 +169,33 @@ def build_custom_network() -> tf.keras.Sequential:
     return model
 
 
-# noinspection PyCallingNonCallable
+def build_custom_network_sigma() -> tf.keras.Sequential:
+    """ Build a sequential model using a pretrained embedding layer from TFHub. """
+    # TFHub Sources:
+    emb_layer = "https://tfhub.dev/google/tf2-preview/nnlm-en-dim128-with-normalization/1"
+
+    # Assemble the model:
+    lyrs = [
+        hub.KerasLayer(emb_layer, input_shape=[], dtype=tf.string),
+        tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(128, return_sequences=True)),
+        tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(128)),
+        tf.keras.layers.Dense(1)
+    ]
+    model = tf.keras.Sequential(name='Pretrained-NN', layers=lyrs)
+
+    # Compile it and return it:
+    model.compile(
+        loss=tf.keras.losses.BinaryCrossentropy(from_logits=True),
+        optimizer=tf.keras.optimizers.SGD(learning_rate=0.01, momentum=0.9, nesterov=True),
+        metrics=tf.keras.metrics.BinaryAccuracy()
+    )
+    return model
+
+
 def bert_network() -> tf.keras.Model:
     """ Return a pretrained BERT model from tensorflow hub. """
     # TFHub Sources:
+    import tensorflow_text
     preprocessor_url = "https://tfhub.dev/tensorflow/bert_en_uncased_preprocess/3"
     encoder_url = "https://tfhub.dev/tensorflow/small_bert/bert_en_uncased_L-2_H-128_A-2/2"
 
@@ -153,7 +203,7 @@ def bert_network() -> tf.keras.Model:
     text_input = tf.keras.layers.Input(shape=(), dtype=tf.string)
     preprocessor = hub.KerasLayer(preprocessor_url)
     encoder_inputs = preprocessor(text_input)
-    encoder = hub.KerasLayer(encoder_url, trainable=True)
+    encoder = hub.KerasLayer(encoder_url)
     outputs = encoder(encoder_inputs)
     pooled_output = outputs["pooled_output"]
     cls_layer = tf.keras.layers.Dense(1)
@@ -169,7 +219,7 @@ def bert_network() -> tf.keras.Model:
     return model
 
 
-def custom_training(model, training_ds, validation_ds, pretrain_rounds=10):
+def custom_training(model, training_ds, validation_ds, pretrain_rounds=15):
     """ Train a custom model in 2 rounds. """
     # Start pretraining:
     version_name = get_model_version_name(model.name)
