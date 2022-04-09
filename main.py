@@ -192,10 +192,10 @@ def build_custom_network_sigma() -> tf.keras.Sequential:
     return model
 
 
+# noinspection PyCallingNonCallable
 def bert_network() -> tf.keras.Model:
     """ Return a pretrained BERT model from tensorflow hub. """
     # TFHub Sources:
-    import tensorflow_text
     preprocessor_url = "https://tfhub.dev/tensorflow/bert_en_uncased_preprocess/3"
     encoder_url = "https://tfhub.dev/tensorflow/small_bert/bert_en_uncased_L-2_H-128_A-2/2"
 
@@ -242,6 +242,20 @@ def custom_training(model, training_ds, validation_ds, pretrain_rounds=15):
     return model
 
 
+def test_trained_network():
+    """ Load up an existing network and run prediction over a given dataset. """
+    # Fetch datasets and configure them:
+    X_train, X_val, X_test, info = get_dataset()
+    X_test = X_test.cache().prefetch(buffer_size=AUTOTUNE)
+
+    # Load up the model:
+    selected_model = r"Models/Pretrained-NN_v.20220223-182329.h5"
+    model = tf.keras.models.load_model(selected_model, custom_objects={'KerasLayer': hub.KerasLayer})
+    scores = model.evaluate(X_test)
+    print(scores)
+    return scores
+
+
 def main():
     """ Run script. """
     # Fetch datasets and configure them:
@@ -259,4 +273,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    test_trained_network()
