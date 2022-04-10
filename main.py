@@ -23,7 +23,7 @@ import string
 AUTOTUNE = tf.data.AUTOTUNE
 EPOCHS = 1000
 BATCH_SIZE = 32
-PATIENCE = 14
+PATIENCE = 12
 RANDOM_SEED = 69
 MAX_FEATURES = 25_000
 SEQ_LENGTH = 128
@@ -47,19 +47,18 @@ def get_dataset():
         shuffle_files=True,
         with_info=True,
         as_supervised=True,
-        split=['train'],
+        split='train+test[:70%]',
         batch_size=BATCH_SIZE
     )
-    a, b, c = tfds.even_splits('test', n=3, drop_remainder=True)
     train_b, val, test = tfds.load(
         'imdb_reviews',
         shuffle_files=True,
         as_supervised=True,
-        split=[a, b, c],
+        split=['test[70%:80%]', 'test[80%:90%]', 'test[90%:100%]'],
         batch_size=BATCH_SIZE
     )
     # Unpack elements:
-    train = train_a[0].concatenate(train_b)
+    train = train_a.concatenate(train_b)
     return train, val, test, info
 
 
@@ -107,11 +106,11 @@ def build_dummy_network() -> tf.keras.Sequential:
         tf.keras.layers.Embedding(MAX_FEATURES + 1, EMBEDDING_DIM),
         tf.keras.layers.GlobalMaxPool1D(),
         tf.keras.layers.Dropout(0.3),
-        tf.keras.layers.Dense(1)
+        tf.keras.layers.Dense(1, activation='sigmoid')
     ]
     model = tf.keras.Sequential(name='Dummy-NN', layers=lyrs)
     model.compile(
-        loss=tf.keras.losses.BinaryCrossentropy(from_logits=True),
+        loss=tf.keras.losses.BinaryCrossentropy(),
         optimizer=tf.keras.optimizers.SGD(learning_rate=0.01, momentum=0.9, nesterov=True),
         metrics=tf.keras.metrics.BinaryAccuracy()
     )
@@ -126,23 +125,23 @@ def build_custom_network() -> tf.keras.Sequential:
     # Assemble the model:
     lyrs = [
         hub.KerasLayer(emb_layer, input_shape=[], dtype=tf.string),
-        tf.keras.layers.Dense(128, activation='relu'),
-        tf.keras.layers.Dropout(0.35),
-        tf.keras.layers.Dense(1)
+        tf.keras.layers.Dropout(0.2),
+        tf.keras.layers.Dense(1, activation='sigmoid')
     ]
     model = tf.keras.Sequential(name='Pretrained-NN', layers=lyrs)
 
     # Compile it and return it:
     model.compile(
-        loss=tf.keras.losses.BinaryCrossentropy(from_logits=True),
-        optimizer=tf.keras.optimizers.SGD(learning_rate=0.01, momentum=0.9, nesterov=True),
+        loss=tf.keras.losses.BinaryCrossentropy(),
+        optimizer=tf.keras.optimizers.SGD(learning_rate=0.03, momentum=0.9, nesterov=True),
         metrics=tf.keras.metrics.BinaryAccuracy()
     )
     return model
 
 
 def build_custom_network_alpha() -> tf.keras.Sequential:
-    """ Build a sequential model using a pretrained embedding layer from TFHub. """
+    """ Build a sequential model using a pretrained embedding layer from TFHub
+    and implement Convolutinal layers on top of the embeddings. """
     # TFHub Sources:
     emb_layer = "https://tfhub.dev/google/tf2-preview/nnlm-en-dim128-with-normalization/1"
 
@@ -150,19 +149,17 @@ def build_custom_network_alpha() -> tf.keras.Sequential:
     lyrs = [
         hub.KerasLayer(emb_layer, input_shape=[], dtype=tf.string),
         tf.keras.layers.Lambda(lambda x: tf.reshape(x, (-1, 128, 1))),
-        tf.keras.layers.Conv1D(16, 5, padding='same'),
-        tf.keras.layers.Conv1D(16, 5, padding='same'),
-        tf.keras.layers.Conv1D(16, 5, padding='same'),
-        tf.keras.layers.GlobalAveragePooling1D(data_format='channels_first'),
-        tf.keras.layers.Dense(128, activation='relu'),
-        tf.keras.layers.Dropout(0.3),
-        tf.keras.layers.Dense(1)
+        tf.keras.layers.Conv1D(32, 8, strides=2, activation='relu'),
+        tf.keras.layers.Conv1D(64, 16, strides=2, activation='relu'),
+        tf.keras.layers.GlobalAveragePooling1D(),
+        tf.keras.layers.Dropout(0.25),
+        tf.keras.layers.Dense(1, activation='sigmoid')
     ]
-    model = tf.keras.Sequential(name='Pretrained-NN', layers=lyrs)
+    model = tf.keras.Sequential(name='Pretrained-CNN', layers=lyrs)
 
     # Compile it and return it:
     model.compile(
-        loss=tf.keras.losses.BinaryCrossentropy(from_logits=True),
+        loss=tf.keras.losses.BinaryCrossentropy(),
         optimizer=tf.keras.optimizers.SGD(learning_rate=0.01, momentum=0.9, nesterov=True),
         metrics=tf.keras.metrics.BinaryAccuracy()
     )
@@ -170,23 +167,26 @@ def build_custom_network_alpha() -> tf.keras.Sequential:
 
 
 def build_custom_network_sigma() -> tf.keras.Sequential:
-    """ Build a sequential model using a pretrained embedding layer from TFHub. """
+    """ Build a sequential model using a pretrained embedding layer from TFHub
+    and implement Recurrent layers on top of the embeddings. """
     # TFHub Sources:
     emb_layer = "https://tfhub.dev/google/tf2-preview/nnlm-en-dim128-with-normalization/1"
 
     # Assemble the model:
     lyrs = [
         hub.KerasLayer(emb_layer, input_shape=[], dtype=tf.string),
-        tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(128, return_sequences=True)),
-        tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(128)),
-        tf.keras.layers.Dense(1)
+        tf.keras.layers.Lambda(lambda x: tf.reshape(x, (-1, 128, 1))),
+        tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(128, return_sequences=True, dropout=0.2)),
+        tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(128, dropout=0.2)),
+        tf.keras.layers.Dropout(0.2),
+        tf.keras.layers.Dense(1, activation='sigmoid')
     ]
-    model = tf.keras.Sequential(name='Pretrained-NN', layers=lyrs)
+    model = tf.keras.Sequential(name='Pretrained-RNN', layers=lyrs)
 
     # Compile it and return it:
     model.compile(
-        loss=tf.keras.losses.BinaryCrossentropy(from_logits=True),
-        optimizer=tf.keras.optimizers.SGD(learning_rate=0.01, momentum=0.9, nesterov=True),
+        loss=tf.keras.losses.BinaryCrossentropy(),
+        optimizer=tf.keras.optimizers.SGD(learning_rate=0.03, momentum=0.9, nesterov=True),
         metrics=tf.keras.metrics.BinaryAccuracy()
     )
     return model
@@ -206,20 +206,20 @@ def bert_network() -> tf.keras.Model:
     encoder = hub.KerasLayer(encoder_url)
     outputs = encoder(encoder_inputs)
     pooled_output = outputs["pooled_output"]
-    cls_layer = tf.keras.layers.Dense(1)
+    cls_layer = tf.keras.layers.Dense(1, activation='sigmoid')
     cls_output = cls_layer(pooled_output)
 
     # Compile it and return it:
     model = tf.keras.Model(inputs=text_input, outputs=cls_output, name='BERT-DNN')
     model.compile(
-        loss=tf.keras.losses.BinaryCrossentropy(from_logits=True),
+        loss=tf.keras.losses.BinaryCrossentropy(),
         optimizer=tf.keras.optimizers.SGD(learning_rate=0.01, momentum=0.9, nesterov=True),
         metrics=tf.keras.metrics.BinaryAccuracy()
     )
     return model
 
 
-def custom_training(model, training_ds, validation_ds, pretrain_rounds=15):
+def custom_training(model, training_ds, validation_ds, pretrain_rounds=20):
     """ Train a custom model in 2 rounds. """
     # Start pretraining:
     version_name = get_model_version_name(model.name)
@@ -231,8 +231,8 @@ def custom_training(model, training_ds, validation_ds, pretrain_rounds=15):
     for layer in model.layers:
         layer.trainable = True
     model.compile(
-        loss=tf.keras.losses.BinaryCrossentropy(from_logits=True),
-        optimizer=tf.keras.optimizers.SGD(learning_rate=0.001, momentum=0.9, nesterov=True),
+        loss=tf.keras.losses.BinaryCrossentropy(),
+        optimizer=tf.keras.optimizers.SGD(learning_rate=0.003, momentum=0.9, nesterov=True),
         metrics=tf.keras.metrics.BinaryAccuracy()
     )
     early_stop = tf.keras.callbacks.EarlyStopping(patience=PATIENCE, restore_best_weights=True)
@@ -256,6 +256,19 @@ def test_trained_network():
     return scores
 
 
+def dev():
+    """ Entry point for testing purposes. """
+    # Fetch datasets and configure them:
+    X_train, X_val, X_test, info = get_dataset()
+    X_train = X_train.cache().prefetch(buffer_size=AUTOTUNE)
+    X_val = X_val.cache().prefetch(buffer_size=AUTOTUNE)
+
+    # Build a network and train it:
+    model = build_custom_network_sigma()
+    model.fit(X_train, validation_data=X_val, epochs=10)
+    return {}
+
+
 def main():
     """ Run script. """
     # Fetch datasets and configure them:
@@ -273,4 +286,4 @@ def main():
 
 
 if __name__ == '__main__':
-    test_trained_network()
+    main()
