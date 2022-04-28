@@ -7,7 +7,7 @@ Author: 187-Shogun
 
 Encoding: UTF-8
 
-Description: Binary classifier to perform sentiment analysis on the IMDB dataset
+Description: Binary classifier to perform sentiment analysis on the IMDB dataset.
 """
 
 
@@ -20,17 +20,19 @@ import os
 import re
 import string
 
+
+# Global variables to interact with the script:
 AUTOTUNE = tf.data.AUTOTUNE
-EPOCHS = 1000
+EPOCHS = 100
 BATCH_SIZE = 32
-PATIENCE = 12
+PATIENCE = 5
 RANDOM_SEED = 69
 MAX_FEATURES = 25_000
 SEQ_LENGTH = 128
 EMBEDDING_DIM = 64
-LOGS_DIR = os.path.join(os.getcwd(), 'Logs')
-CM_DIR = os.path.join(os.getcwd(), 'ConfusionMatrixes')
-MODELS_DIR = os.path.join(os.getcwd(), 'Models')
+LOGS_DIR = os.path.join(os.getcwd(), 'logs')
+CM_DIR = os.path.join(os.getcwd(), 'reports')
+MODELS_DIR = os.path.join(os.getcwd(), 'models')
 
 
 def get_model_version_name(model_name: str) -> str:
@@ -40,7 +42,7 @@ def get_model_version_name(model_name: str) -> str:
     return f"{model_name}_v.{run_id}"
 
 
-def get_dataset():
+def get_dataset() -> tuple:
     """ Get dataset from the TFDS library. """
     train_a, info = tfds.load(
         'imdb_reviews',
@@ -62,14 +64,14 @@ def get_dataset():
     return train, val, test, info
 
 
-def text_normalization(data):
+def text_normalization(data) -> tf.Tensor:
     """ Clean text. """
     lowercase = tf.strings.lower(data)
     html_stripped = tf.strings.regex_replace(lowercase, '<br />', ' ')
     return tf.strings.regex_replace(html_stripped, '[%s]' % re.escape(string.punctuation), '')
 
 
-def txt_to_vec_layer(max_features: int, sequence_length: int):
+def txt_to_vec_layer(max_features: int, sequence_length: int) -> tf.keras.layers.TextVectorization:
     """ Create a TextVectorization layer to transform each word into a unique integer in an index. """
     corpus_a = tfds.load(
         'imdb_reviews',
@@ -93,7 +95,7 @@ def txt_to_vec_layer(max_features: int, sequence_length: int):
     return vxt
 
 
-def text_to_vector(vxt_layer, sample_text, sample_label):
+def text_to_vector(vxt_layer, sample_text, sample_label) -> tf.keras.layers.TextVectorization:
     """" Apply processing layer to input text. """
     sample_text = tf.expand_dims(sample_text, -1)
     return vxt_layer(sample_text), sample_label
@@ -219,7 +221,7 @@ def bert_network() -> tf.keras.Model:
     return model
 
 
-def custom_training(model, training_ds, validation_ds, pretrain_rounds=20):
+def custom_training(model, training_ds, validation_ds, pretrain_rounds=20) -> tf.keras.Model:
     """ Train a custom model in 2 rounds. """
     # Start pretraining:
     version_name = get_model_version_name(model.name)
@@ -242,7 +244,7 @@ def custom_training(model, training_ds, validation_ds, pretrain_rounds=20):
     return model
 
 
-def test_trained_network():
+def test_trained_network() -> list:
     """ Load up an existing network and run prediction over a given dataset. """
     # Fetch datasets and configure them:
     X_train, X_val, X_test, info = get_dataset()
